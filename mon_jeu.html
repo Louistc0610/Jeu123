@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>NEON OVERDRIVE - LEVELS & ENEMIES</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial', sans-serif; }
+        #gameContainer { position: relative; border: 2px solid #111; box-shadow: 0 0 100px rgba(0,210,255,0.1); }
+        canvas { background: radial-gradient(circle, #0a0a1a 0%, #000 100%); display: block; }
+        #gameContainer::after {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 4px, 3px 100%; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = 900;
+canvas.height = 600;
+
+// Configuration du jeu
+let game = { 
+    score: 0, 
+    level: 1, 
+    lives: 3, 
+    shake: 0, 
+    frame: 0, 
+    colors: ['#00d2ff', '#00ff88', '#ff00ff', '#ffff00', '#ff4400'] 
+};
+
+const keys = {};
+const particles = [];
+const enemies = [];
+const trail = [];
+const stars = Array.from({length: 100}, () => ({
+    x: Math.random() * canvas.width, 
+    y: Math.random() * canvas.height, 
+    s: Math.random() * 2
+}));
+
+const player = { x: 450, y: 300, size: 24, speed: 7, color: game.colors[0] };
+const point = { x: 200, y: 200, radius: 12 };
+
+window.onkeydown = (e) => keys[e.key] = true;
+window.onkeyup = (e) => keys[e.key] = false;
+
+function spawnPart(x, y, color) {
+    for(let i=0; i<15; i++) {
+        particles.push({
+            x, y, color,
+            vx: (Math.random()-0.5)*12, vy: (Math.random()-0.5)*12,
+            life: 1, s: Math.random()*4
+        });
+    }
+}
+
+function spawnEnemy() {
+    // La vitesse augmente avec le niveau
+    const speedScale = 2 + game.level;
+    enemies.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() > 0.5 ? 0 : canvas.height,
+        vx: (Math.random() - 0.5) * speedScale,
+        vy: (Math.random() - 0.5) * speedScale,
+        size: 20
+    });
+}
+
+function update() {
+    game.frame++;
+    if (game.shake > 0) game.shake *= 0.9;
+
+    // Gestion du Niveau (Chaque 100 points)
+    let newLevel = Math.floor(game.score / 100) + 1;
+    if (newLevel !== game.level) {
+        game.level = newLevel;
+        player.color = game.colors[(game.level - 1) % game.colors.length];
+        game.shake = 30; // Gros flash/shake au changement de niveau
+        spawnEnemy(); // Ajoute un ennemi permanent à chaque niveau
+    }
+
+    // Mouvement joueur
+    let nx = player.x + (keys['ArrowRight'] ? player.speed : 0) - (keys['ArrowLeft'] ? player.speed : 0);
+    let ny = player.y + (keys['ArrowDown'] ? player.speed : 0) - (keys['ArrowUp'] ? player.speed : 0);
+    player.x = Math.max(0, Math.min(canvas.width - player.size, nx));
+    player.y = Math.max(0, Math.min(canvas.height - player.size, ny));
+
+    // Trail
+    trail.push({x: player.x, y: player.y});
+    if (trail.length > 15) trail.shift();
+
+    // Collision Point
+    if (Math.hypot(player.x + 12 - point.x, player.y + 12 - point.y) < 28) {
+        game.score += 10;
+        game.shake = 15;
+        spawnPart(point.x, point.y, '#f1c40f');
+        point.x = 50 + Math.random() * (canvas.width - 100);
+        point.y = 50 + Math.random() * (canvas.height - 100);
+        
+        // Chance d'apparition d'un ennemi temporaire
+        if(game.score % 50 === 0) spawnEnemy();
+    }
+
+    // Update Ennemis
+    enemies.forEach((en, index) => {
+        en.x += en.vx;
+        en.y += en.vy;
+
+        // Rebond sur les bords
+        if(en.x < 0 || en.x > canvas.width - en.size) en.vx *= -1;
+        if(en.y < 0 || en.y > canvas.height - en.size) en.vy *= -1;
+
+        // Collision avec Joueur
+        if (player.x < en.x + en.size && player.x + player.size > en.x &&
+            player.y < en.y + en.size && player.y + player.size > en.y) {
+            game.lives--;
+            game.shake = 40;
+            enemies.splice(index, 1); // L'ennemi explose au contact
+            spawnPart(en.x, en.y, '#ff0000');
+            if(game.lives <= 0) {
+                alert("GAME OVER - Score: " + game.score);
+                document.location.reload();
+            }
+        }
+    });
+
+    // Stars & Particules
+    stars.forEach(s => { s.y += 0.5 + (game.level * 0.2); if(s.y > canvas.height) s.y = 0; });
+    particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; if(p.life <= 0) particles.splice(i, 1); });
+}
+
+function draw() {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    if(game.shake > 0.5) ctx.translate(Math.random()*game.shake - game.shake/2, Math.random()*game.shake - game.shake/2);
+
+    // Étoiles
+    ctx.fillStyle = "#fff";
+    stars.forEach(s => ctx.fillRect(s.x, s.y, s.s, s.s));
+
+    // Bordures
+    let pulse = Math.sin(game.frame * 0.05) * 5;
+    ctx.strokeStyle = player.color;
+    ctx.lineWidth = 2 + pulse/2;
+    ctx.shadowBlur = 15 + pulse;
+    ctx.shadowColor = player.color;
+    ctx.strokeRect(5, 5, canvas.width-10, canvas.height-10);
+
+    // Trail
+    trail.forEach((t, i) => {
+        ctx.globalAlpha = i / trail.length;
+        ctx.fillStyle = player.color;
+        ctx.fillRect(t.x, t.y, player.size, player.size);
+    });
+    ctx.globalAlpha = 1;
+
+    // Joueur
+    ctx.shadowBlur = 25;
+    ctx.fillStyle = player.color;
+    ctx.fillRect(player.x, player.y, player.size, player.size);
+
+    // Point
+    ctx.shadowColor = '#f1c40f';
+    ctx.fillStyle = '#f1c40f';
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, point.radius + Math.sin(game.frame*0.2)*2, 0, Math.PI*2);
+    ctx.fill();
+
+    // Ennemis (Rouge Fluo)
+    ctx.shadowColor = '#ff0000';
+    ctx.fillStyle = '#ff0000';
+    enemies.forEach(en => {
+        ctx.fillRect(en.x, en.y, en.size, en.size);
+    });
+
+    // Particules
+    ctx.shadowBlur = 0;
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.s, p.s);
+    });
+    ctx.globalAlpha = 1;
+
+    // Interface (Score, Niveau, Vies)
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "#fff";
+    ctx.fillStyle = "white";
+    ctx.font = "bold 20px Arial";
+    ctx.fillText(`SCORE: ${game.score}`, 30, 40);
+    ctx.fillText(`NIVEAU: ${game.level}`, canvas.width / 2 - 50, 40);
+    ctx.fillText(`VIES: ${"❤️".repeat(game.lives)}`, canvas.width - 150, 40);
+
+    ctx.restore();
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
